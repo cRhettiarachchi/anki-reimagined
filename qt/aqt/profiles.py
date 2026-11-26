@@ -371,7 +371,7 @@ class ProfileManager:
 
             return os.path.join(get_appdata(), "Anki2")
         elif is_mac:
-            return os.path.expanduser("~/Library/Application Support/Anki2")
+            return os.path.expanduser("~/Library/Application Support/Anki Reimagined")
         else:
             dataDir = os.environ.get(
                 "XDG_DATA_HOME", os.path.expanduser("~/.local/share")

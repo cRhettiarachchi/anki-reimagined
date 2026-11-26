@@ -30,6 +30,11 @@ rebuild-web:
 wheels:
     {{ ninja }} wheels
 
+# Build the local macOS application bundle
+[macos]
+mac-app:
+    {{ ninja }} installer:package
+
 # Build and run all checks (lint + test) - lets ninja handle dependencies
 check:
     {{ ninja }} pylib qt check

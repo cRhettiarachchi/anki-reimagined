@@ -34,92 +34,18 @@ from aqt.webview import AnkiWebView, AnkiWebViewKind
 LastStateAndMod = tuple[str, int, int]
 
 
-class Previewer(QDialog):
+class CardPreview:
+    """The card display shared by the browser preview and manual deck study."""
+
+    mw: AnkiQt
+    _web: AnkiWebView | None
     _state: Literal["question", "answer"] = "question"
     _last_state: LastStateAndMod | None = None
     _card_changed = False
-    _last_render: int | float = 0
-    _timer: QTimer | None = None
     _show_both_sides = False
-
-    def __init__(
-        self,
-        parent: aqt.browser.Browser | None,
-        mw: AnkiQt,
-        on_close: Callable[[], None],
-    ) -> None:
-        super().__init__(None, Qt.WindowType.Window)
-        mw.garbage_collect_on_dialog_finish(self)
-        self._open = True
-        self._parent = parent
-        self._close_callback = on_close
-        self.mw = mw
-        disable_help_button(self)
-        setWindowIcon(self)
-        gui_hooks.previewer_did_init(self)
 
     def card(self) -> Card | None:
         raise NotImplementedError
-
-    def card_changed(self) -> bool:
-        raise NotImplementedError
-
-    def open(self) -> None:
-        self._state = "question"
-        self._last_state = None
-        self._create_gui()
-        self._setup_web_view()
-        self.render_card()
-        restoreGeom(self, "preview")
-        self.show()
-
-    def _create_gui(self) -> None:
-        self.setWindowTitle(tr.actions_preview())
-
-        self.close_shortcut = QShortcut(QKeySequence("Ctrl+Shift+P"), self)
-        qconnect(self.close_shortcut.activated, self.close)
-
-        qconnect(self.finished, self._on_finished)
-        self.silentlyClose = True
-        self.vbox = QVBoxLayout()
-        spacing = 6
-        self.vbox.setContentsMargins(0, 0, 0, 0)
-        self.vbox.setSpacing(spacing)
-        self._web: AnkiWebView | None = AnkiWebView(kind=AnkiWebViewKind.PREVIEWER)
-        self.vbox.addWidget(self._web)
-        self.bbox = QDialogButtonBox()
-        self.bbox.setContentsMargins(
-            spacing, spacing if is_mac else 0, spacing, spacing
-        )
-        self.bbox.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
-
-        gui_hooks.card_review_webview_did_init(self._web, AnkiWebViewKind.PREVIEWER)
-
-        self._replay = self.bbox.addButton(
-            tr.actions_replay_audio(), QDialogButtonBox.ButtonRole.ActionRole
-        )
-        assert self._replay is not None
-        self._replay.setAutoDefault(False)
-        self._replay.setShortcut(QKeySequence("R"))
-        self._replay.setToolTip(tr.actions_shortcut_key(val="R"))
-        qconnect(self._replay.clicked, self._on_replay_audio)
-
-        both_sides_button = QCheckBox(tr.qt_misc_back_side_only())
-        both_sides_button.setShortcut(QKeySequence("B"))
-        both_sides_button.setToolTip(tr.actions_shortcut_key(val="B"))
-        self.bbox.addButton(both_sides_button, QDialogButtonBox.ButtonRole.ActionRole)
-        self._show_both_sides = self.mw.col.get_config_bool(
-            Config.Bool.PREVIEW_BOTH_SIDES
-        )
-        both_sides_button.setChecked(self._show_both_sides)
-        qconnect(both_sides_button.toggled, self._on_show_both_sides)
-
-        self.vbox.addWidget(self.bbox)
-        self.setLayout(self.vbox)
-
-    def _on_finished(self, ok: int) -> None:
-        saveGeom(self, "preview")
-        self._on_close()
 
     def _on_replay_audio(self) -> None:
         assert self._web is not None
@@ -132,15 +58,6 @@ class Previewer(QDialog):
             replay_audio(card, True)
         elif self._state == "answer":
             replay_audio(card, False)
-
-    def _on_close(self) -> None:
-        self._open = False
-        self._close_callback()
-
-        assert self._web is not None
-
-        self._web.cleanup()
-        self._web = None
 
     def _setup_web_view(self) -> None:
         assert self._web is not None
@@ -178,37 +95,12 @@ class Previewer(QDialog):
 
         self._web.eval(f"_drawFlag({flag}); _drawMark({json.dumps(marked)});")
 
-    def render_card(self) -> None:
-        self.cancel_timer()
-        # Keep track of whether render() has ever been called
-        # with cardChanged=True since the last successful render
-        self._card_changed |= self.card_changed()
-        # avoid rendering in quick succession
-        elap_ms = int((time.time() - self._last_render) * 1000)
-        delay = 300
-        if elap_ms < delay:
-            self._timer = self.mw.progress.timer(
-                delay - elap_ms, self._render_scheduled, False, parent=self
-            )
-        else:
-            self._render_scheduled()
-
-    def cancel_timer(self) -> None:
-        if self._timer:
-            self._timer.stop()
-            self._timer = None
-
     def type_ans_preview_filter(
         self, txt: str, type: Literal["question", "answer"]
     ) -> str:
         return re.sub(r"\[\[type:[^]]+\]\]", "", txt)
 
-    def _render_scheduled(self) -> None:
-        self.cancel_timer()
-        self._last_render = time.time()
-
-        if not self._open:
-            return
+    def _display_card(self) -> None:
         c = self.card()
         self._update_flag_and_mark_icons(c)
         func = "_showQuestion"
@@ -275,6 +167,136 @@ class Previewer(QDialog):
         self._web.eval(js)
         self._card_changed = False
 
+    def _state_and_mod(self) -> tuple[str, int, int]:
+        c = self.card()
+
+        assert c is not None
+
+        n = c.note()
+        n.load()
+        return (self._state, c.id, n.mod)
+
+    def state(self) -> str:
+        return self._state
+
+
+class Previewer(QDialog, CardPreview):
+    _last_render: int | float = 0
+    _timer: QTimer | None = None
+
+    def __init__(
+        self,
+        parent: aqt.browser.Browser | None,
+        mw: AnkiQt,
+        on_close: Callable[[], None],
+    ) -> None:
+        super().__init__(None, Qt.WindowType.Window)
+        mw.garbage_collect_on_dialog_finish(self)
+        self._open = True
+        self._parent = parent
+        self._close_callback = on_close
+        self.mw = mw
+        disable_help_button(self)
+        setWindowIcon(self)
+        gui_hooks.previewer_did_init(self)
+
+    def card_changed(self) -> bool:
+        raise NotImplementedError
+
+    def open(self) -> None:
+        self._state = "question"
+        self._last_state = None
+        self._create_gui()
+        self._setup_web_view()
+        self.render_card()
+        restoreGeom(self, "preview")
+        self.show()
+
+    def _create_gui(self) -> None:
+        self.setWindowTitle(tr.actions_preview())
+
+        self.close_shortcut = QShortcut(QKeySequence("Ctrl+Shift+P"), self)
+        qconnect(self.close_shortcut.activated, self.close)
+
+        qconnect(self.finished, self._on_finished)
+        self.silentlyClose = True
+        self.vbox = QVBoxLayout()
+        spacing = 6
+        self.vbox.setContentsMargins(0, 0, 0, 0)
+        self.vbox.setSpacing(spacing)
+        self._web: AnkiWebView | None = AnkiWebView(kind=AnkiWebViewKind.PREVIEWER)
+        self.vbox.addWidget(self._web)
+        self.bbox = QDialogButtonBox()
+        self.bbox.setContentsMargins(
+            spacing, spacing if is_mac else 0, spacing, spacing
+        )
+        self.bbox.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
+
+        gui_hooks.card_review_webview_did_init(self._web, AnkiWebViewKind.PREVIEWER)
+
+        self._replay = self.bbox.addButton(
+            tr.actions_replay_audio(), QDialogButtonBox.ButtonRole.ActionRole
+        )
+        assert self._replay is not None
+        self._replay.setAutoDefault(False)
+        self._replay.setShortcut(QKeySequence("R"))
+        self._replay.setToolTip(tr.actions_shortcut_key(val="R"))
+        qconnect(self._replay.clicked, self._on_replay_audio)
+
+        both_sides_button = QCheckBox(tr.qt_misc_back_side_only())
+        both_sides_button.setShortcut(QKeySequence("B"))
+        both_sides_button.setToolTip(tr.actions_shortcut_key(val="B"))
+        self.bbox.addButton(both_sides_button, QDialogButtonBox.ButtonRole.ActionRole)
+        self._show_both_sides = self.mw.col.get_config_bool(
+            Config.Bool.PREVIEW_BOTH_SIDES
+        )
+        both_sides_button.setChecked(self._show_both_sides)
+        qconnect(both_sides_button.toggled, self._on_show_both_sides)
+
+        self.vbox.addWidget(self.bbox)
+        self.setLayout(self.vbox)
+
+    def _on_finished(self, ok: int) -> None:
+        saveGeom(self, "preview")
+        self._on_close()
+
+    def _on_close(self) -> None:
+        self._open = False
+        self._close_callback()
+
+        assert self._web is not None
+
+        self._web.cleanup()
+        self._web = None
+
+    def render_card(self) -> None:
+        self.cancel_timer()
+        # Keep track of whether render() has ever been called
+        # with cardChanged=True since the last successful render
+        self._card_changed |= self.card_changed()
+        # avoid rendering in quick succession
+        elap_ms = int((time.time() - self._last_render) * 1000)
+        delay = 300
+        if elap_ms < delay:
+            self._timer = self.mw.progress.timer(
+                delay - elap_ms, self._render_scheduled, False, parent=self
+            )
+        else:
+            self._render_scheduled()
+
+    def cancel_timer(self) -> None:
+        if self._timer:
+            self._timer.stop()
+            self._timer = None
+
+    def _render_scheduled(self) -> None:
+        self.cancel_timer()
+        self._last_render = time.time()
+
+        if not self._open:
+            return
+        self._display_card()
+
     def _on_show_both_sides(self, toggle: bool) -> None:
         assert self._web is not None
 
@@ -291,18 +313,6 @@ class Previewer(QDialog):
         if self._state == "answer" and not toggle:
             self._state = "question"
         self.render_card()
-
-    def _state_and_mod(self) -> tuple[str, int, int]:
-        c = self.card()
-
-        assert c is not None
-
-        n = c.note()
-        n.load()
-        return (self._state, c.id, n.mod)
-
-    def state(self) -> str:
-        return self._state
 
 
 class MultiCardPreviewer(Previewer):

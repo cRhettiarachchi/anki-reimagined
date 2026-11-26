@@ -27,6 +27,7 @@ from anki import hooks
 from anki._backend import RustBackend as _RustBackend
 from anki._legacy import deprecated
 from anki.buildinfo import version as version_str
+from anki.cards import Card
 from anki.collection import (
     Collection,
     Config,
@@ -91,7 +92,13 @@ from aqt.webview import AnkiWebView, AnkiWebViewKind
 install_pylib_legacy()
 
 MainWindowState = Literal[
-    "startup", "deckBrowser", "overview", "review", "resetRequired", "profileManager"
+    "startup",
+    "deckBrowser",
+    "overview",
+    "manualStudy",
+    "review",
+    "resetRequired",
+    "profileManager",
 ]
 
 
@@ -509,7 +516,7 @@ class AnkiQt(QMainWindow):
         restoreGeom(self, "mainWindow")
         restoreState(self, "mainWindow")
         # titlebar
-        self.setWindowTitle(f"{self.pm.name} - Anki")
+        self.setWindowTitle(f"{self.pm.name} - {aqt.appName}")
         # show and raise window for osx
         self.show()
         self.activateWindow()
@@ -796,6 +803,21 @@ class AnkiQt(QMainWindow):
             return self.moveToState("deckBrowser")
         self.overview.show()
 
+    def open_selected_deck(self) -> None:
+        if deck := self._selectedDeck():
+            self.moveToState("overview" if deck["dyn"] else "manualStudy")
+
+    def _manualStudyState(self, oldState: MainWindowState) -> None:
+        from aqt.manualstudy import ManualStudy
+
+        self.manual_study = ManualStudy(self, self.col.decks.get_current_id())
+        self.manual_study.show()
+
+    def _manualStudyCleanup(self, newState: MainWindowState) -> None:
+        aqt.sound.av_player.stop_and_clear_queue()
+        self.web.allow_drops = False
+        del self.manual_study
+
     def _reviewState(self, oldState: MainWindowState) -> None:
         self.reviewer.show()
 
@@ -856,6 +878,9 @@ class AnkiQt(QMainWindow):
         focused = current_window() == self
         if self.state == "review":
             dirty = self.reviewer.op_executed(changes, handler, focused)
+        elif self.state == "manualStudy":
+            self.manual_study.op_executed(changes)
+            dirty = False
         elif self.state == "overview":
             dirty = self.overview.op_executed(changes, handler, focused)
         elif self.state == "deckBrowser":
@@ -1241,8 +1266,8 @@ title="{}" {}>{}</button>""".format(
         if self.state == "overview":
             self.col.startTimebox()
             self.moveToState("review")
-        else:
-            self.moveToState("overview")
+        elif self.state != "manualStudy":
+            self.open_selected_deck()
 
     # App exit
     ##########################################################################
@@ -1318,8 +1343,13 @@ title="{}" {}>{}</button>""".format(
         if isinstance(add_cards, NewAddCards):
             add_cards.load_new_note()
 
+    def current_card(self) -> Card | None:
+        if self.state == "manualStudy":
+            return self.manual_study.card()
+        return self.reviewer.card
+
     def onBrowse(self) -> None:
-        aqt.dialogs.open("Browser", self, card=self.reviewer.card)
+        aqt.dialogs.open("Browser", self, card=self.current_card())
 
     def onEditCurrent(self) -> None:
         experimental = self.col.experiment_enabled(ExperimentFlag.SVELTE_EDITOR)
@@ -1476,7 +1506,7 @@ title="{}" {}>{}</button>""".format(
         m.actionFullScreen.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
 
     def updateTitleBar(self) -> None:
-        self.setWindowTitle("Anki")
+        self.setWindowTitle(aqt.appName)
 
     # View
     ##########################################################################
@@ -1726,7 +1756,7 @@ title="{}" {}>{}</button>""".format(
                 return
             deck_id = self.col.decks.id(ret.name)
             set_current_deck(parent=self, deck_id=deck_id).success(
-                lambda out: self.moveToState("overview")
+                lambda out: self.open_selected_deck()
             ).run_in_background()
 
         StudyDeck(
@@ -1838,7 +1868,7 @@ title="{}" {}>{}</button>""".format(
 
     def interactiveState(self) -> bool:
         "True if not in profile manager, syncing, etc."
-        return self.state in ("overview", "review", "deckBrowser")
+        return self.state in ("overview", "manualStudy", "review", "deckBrowser")
 
     # GC
     ##########################################################################

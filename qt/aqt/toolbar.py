@@ -442,12 +442,7 @@ class Toolbar:
         self.mw.moveToState("deckBrowser")
 
     def _studyLinkHandler(self) -> None:
-        # if overview already shown, switch to review
-        if self.mw.state == "overview":
-            self.mw.col.startTimebox()
-            self.mw.moveToState("review")
-        else:
-            self.mw.onOverview()
+        self.mw.onStudyKey()
 
     def _addLinkHandler(self) -> None:
         self.mw.onAddCard()

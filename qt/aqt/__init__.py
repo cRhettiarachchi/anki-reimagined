@@ -79,6 +79,7 @@ except AttributeError:
         # writer will be overwritten when ErrorHandler is initialized.
         sys.stderr = sys.stdout = open(os.devnull, "w", encoding="utf8")
 
+appName = "Anki Reimagined" if is_mac else "Anki"
 appVersion = _version
 appWebsite = "https://apps.ankiweb.net/"
 appWebsiteDownloadSection = "https://apps.ankiweb.net/#download"
@@ -334,7 +335,7 @@ class AnkiApp(QApplication):
 
     KEY = (
         os.environ.get("ANKI_SINGLE_INSTANCE_KEY")
-        or f"anki{checksum(getpass.getuser())}"
+        or f"{appName.lower().replace(' ', '-')}{checksum(getpass.getuser())}"
     )
     TMOUT = 30000
 
@@ -769,7 +770,7 @@ def _run(argv: list[str] | None = None, exec: bool = True) -> AnkiApp | None:
         os.environ["QT_QPA_PLATFORM"] = "windows:altgr"
 
     # create the app
-    QCoreApplication.setApplicationName("Anki")
+    QCoreApplication.setApplicationName(appName)
     QGuiApplication.setDesktopFileName("anki")
     app = AnkiApp(argv, safe_mode)
     if app.secondInstance():

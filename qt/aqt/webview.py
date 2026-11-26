@@ -797,7 +797,7 @@ html {{ {font} }}
             page_context = PageContext.EDITOR
         elif isinstance(context, aqt.reviewer.Reviewer):
             page_context = PageContext.REVIEWER
-        elif isinstance(context, aqt.browser.previewer.Previewer):
+        elif isinstance(context, aqt.browser.previewer.CardPreview):
             page_context = PageContext.PREVIEWER
         elif isinstance(context, aqt.clayout.CardLayout):
             page_context = PageContext.CARD_LAYOUT

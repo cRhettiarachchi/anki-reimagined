@@ -432,12 +432,17 @@ require("anki/ui").loaded.then(() => require("anki/NoteEditor").instances[0].too
                 self.web.setFocus()
             gui_hooks.editor_did_load_note(self)
 
+        reviewer_card = (
+            self.card
+            if self.editorMode == EditorMode.EDIT_CURRENT
+            else self.mw.reviewer.card
+        )
         load_args = dict(
             nid=self.nid,
             notetypeId=mid,
             focusTo=focus_to,
             originalNoteId=original_note_id,
-            reviewerCardId=self.mw.reviewer.card.id if self.mw.reviewer.card else None,
+            reviewerCardId=reviewer_card.id if reviewer_card else None,
             deckId=deck_id,
             initial=True,
         )

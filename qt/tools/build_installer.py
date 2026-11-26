@@ -121,7 +121,7 @@ def get_briefcase_sources_path(out_dir: Path) -> Path:
             / "anki"
             / "macos"
             / "app"
-            / "Anki.app"
+            / "Anki Reimagined.app"
             / "Contents"
             / "Resources"
         )

@@ -29,9 +29,10 @@ class EditCurrent(QMainWindow):
             self,
             editor_mode=aqt.editor.EditorMode.EDIT_CURRENT,
         )
-        assert self.mw.reviewer.card is not None
-        self.editor.card = self.mw.reviewer.card
-        self.editor.set_note(self.mw.reviewer.card.note(), focusTo=0)
+        card = self.mw.current_card()
+        assert card is not None
+        self.editor.card = card
+        self.editor.set_note(card.note(), focusTo=0)
         restoreGeom(self, "editcurrent")
         self.buttonbox = QDialogButtonBox(Qt.Orientation.Horizontal)
         self.form.verticalLayout.insertWidget(1, self.buttonbox)
@@ -70,7 +71,7 @@ class EditCurrent(QMainWindow):
         aqt.dialogs.markClosed("EditCurrent")
 
     def reopen(self, mw: aqt.AnkiQt) -> None:
-        if card := self.mw.reviewer.card:
+        if card := self.mw.current_card():
             self.editor.card = card
             self.editor.set_note(card.note())
 

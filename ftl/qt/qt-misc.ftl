@@ -75,6 +75,13 @@ qt-misc-layout-auto-enabled = Responsive layout enabled
 qt-misc-layout-vertical-enabled = Vertical layout enabled
 qt-misc-layout-horizontal-enabled = Horizontal layout enabled
 
+qt-misc-manual-position = Card { $count } of { $total }
+qt-misc-previous-card = Previous
+qt-misc-next-card = Next
+qt-misc-show-question = Show Question
+qt-misc-deck-is-empty = This deck has no cards.
+qt-misc-scheduled-review = Scheduled Review
+
 ## deprecated- these strings will be removed in the future, and do not need
 ## to be translated
 

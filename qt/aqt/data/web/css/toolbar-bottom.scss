@@ -10,3 +10,25 @@ body {
     margin-top: 0;
     padding: 9px;
 }
+
+.manual-study,
+.manual-controls,
+.manual-status {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.manual-study {
+    flex-direction: column;
+}
+
+.manual-status {
+    font-size: 0.875rem;
+
+    strong {
+        overflow-wrap: anywhere;
+    }
+}

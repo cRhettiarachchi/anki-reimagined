@@ -40,7 +40,6 @@ class RenderData:
 
     tree: DeckTreeNode
     current_deck_id: DeckId
-    studied_today: str
     sched_upgrade_required: bool
 
 
@@ -91,7 +90,7 @@ class DeckBrowser:
     def op_executed(
         self, changes: OpChanges, handler: object | None, focused: bool
     ) -> bool:
-        if changes.study_queues and handler is not self:
+        if (changes.deck or changes.study_queues) and handler is not self:
             self._refresh_needed = True
 
         if focused:
@@ -138,7 +137,7 @@ class DeckBrowser:
 
     def set_current_deck(self, deck_id: DeckId) -> None:
         set_current_deck(parent=self.mw, deck_id=deck_id).success(
-            lambda _: self.mw.onOverview()
+            lambda _: self.mw.open_selected_deck()
         ).run_in_background(initiator=self)
 
     # HTML generation
@@ -160,9 +159,8 @@ class DeckBrowser:
 
             def get_data(col: Collection) -> RenderData:
                 return RenderData(
-                    tree=col.sched.deck_due_tree(),
+                    tree=col.decks.deck_tree(),
                     current_deck_id=col.decks.get_current_id(),
-                    studied_today=col.studied_today(),
                     sched_upgrade_required=not col.v3_scheduler(),
                 )
 
@@ -179,10 +177,12 @@ class DeckBrowser:
             self.web.evalWithCallback("window.pageYOffset", self.__renderPage)
 
     def __renderPage(self, offset: int | None) -> None:
+        if self.mw.state != "deckBrowser":
+            return
         data = self._render_data
         content = DeckBrowserContent(
             tree=self._renderDeckTree(data.tree),
-            stats=self._renderStats(),
+            stats="",
         )
         gui_hooks.deck_browser_will_render_content(self, content)
         self.web.stdHtml(
@@ -204,23 +204,8 @@ class DeckBrowser:
     def _scrollToOffset(self, offset: int) -> None:
         self.web.eval("window.scrollTo(0, %d, 'instant');" % offset)
 
-    def _renderStats(self) -> str:
-        return '<div id="studiedToday"><span>{}</span></div>'.format(
-            self._render_data.studied_today
-        )
-
     def _renderDeckTree(self, top: DeckTreeNode) -> str:
-        buf = """
-<tr><th colspan=5 align=start>{}</th>
-<th class=count>{}</th>
-<th class=count>{}</th>
-<th class=count>{}</th>
-<th class=optscol></th></tr>""".format(
-            tr.decks_deck(),
-            tr.actions_new(),
-            tr.decks_learn_header(),
-            tr.decks_review_header(),
-        )
+        buf = f"<tr><th align=start>{tr.decks_deck()}</th><th class=optscol></th></tr>"
         buf += self._topLevelDragRow()
 
         ctx = RenderDeckNodeContext(current_deck_id=self._render_data.current_deck_id)
@@ -266,7 +251,7 @@ class DeckBrowser:
             extraclass = ""
         buf += """
 
-        <td class=decktd colspan=5>%s%s<a class="deck %s"
+        <td class=decktd>%s%s<a class="deck %s"
         href=# onclick="return pycmd('open:%d')">%s</a></td>""" % (
             indent(),
             collapse,
@@ -275,20 +260,6 @@ class DeckBrowser:
             html.escape(node.name),
         )
 
-        # due counts
-        def nonzeroColour(cnt: int, klass: str) -> str:
-            if not cnt:
-                klass = "zero-count"
-            return f'<span class="{klass}">{cnt}</span>'
-
-        review = nonzeroColour(node.review_count, "review-count")
-        learn = nonzeroColour(node.learn_count, "learn-count")
-
-        buf += ("<td align=end>%s</td>" * 3) % (
-            nonzeroColour(node.new_count, "new-count"),
-            learn,
-            review,
-        )
         # options
         buf += (
             "<td align=center class=opts><a onclick='return pycmd(\"opts:%d\");'>"
@@ -301,13 +272,23 @@ class DeckBrowser:
         return buf
 
     def _topLevelDragRow(self) -> str:
-        return "<tr class='top-level-drag-row'><td colspan='6'>&nbsp;</td></tr>"
+        return "<tr class='top-level-drag-row'><td colspan='2'>&nbsp;</td></tr>"
 
     # Options
     ##########################################################################
 
     def _showOptions(self, did: str) -> None:
         m = QMenu(self.mw)
+        a = m.addAction(tr.qt_misc_scheduled_review())
+        assert a is not None
+        qconnect(
+            a.triggered,
+            lambda: (
+                set_current_deck(parent=self.mw, deck_id=DeckId(int(did)))
+                .success(lambda _: self.mw.onOverview())
+                .run_in_background()
+            ),
+        )
         a = m.addAction(tr.actions_rename())
         assert a is not None
         qconnect(a.triggered, lambda b, did=did: self._rename(DeckId(int(did))))
@@ -353,7 +334,7 @@ class DeckBrowser:
                 parent=self.mw,
                 deck_id=did,
                 collapsed=node.collapsed,
-                scope=DeckCollapseScope.REVIEWER,
+                scope=DeckCollapseScope.BROWSER,
             ).run_in_background(initiator=self)
             self._renderPage(reuse=True)
 
